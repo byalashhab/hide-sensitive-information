@@ -4,8 +4,15 @@
   "manifest_version": 3,
   "version": "0.1",
   "description": "Hide fields on a website that contain sensitive information.",
-  "permissions": ["activeTab", "scripting"],
+  "permissions": ["storage", "scripting", "tabs", "activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["index.js"]
+    }
+  ],
   "background": {
     "service_worker": "service-worker.js"
-  }
+  },
+  "host_permissions": ["*://*/*"]
 }
