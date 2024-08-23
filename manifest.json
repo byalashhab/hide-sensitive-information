@@ -1,0 +1,11 @@
+{
+  "name": "Hide Sensitive Information",
+  "action": {},
+  "manifest_version": 3,
+  "version": "0.1",
+  "description": "Hide fields on a website that contain sensitive information.",
+  "permissions": ["activeTab", "scripting"],
+  "background": {
+    "service_worker": "service-worker.js"
+  }
+}
