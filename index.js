@@ -1,41 +1,185 @@
-document.addEventListener("DOMContentLoaded", () => {
-  console.log("loaded index dom");
-});
-console.log("loaded index");
-
-const hiddenSymbol = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-  <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-</svg>
-`;
-const visibleSymbol = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-  <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-</svg>
-`;
-
 const dataTypeAttribute = "data-hide-sensitive-information-type";
+let isHiddenGlobal = false;
+let throttleTimer = null;
 
-chrome.storage.sync.get("isHidden", (data) => {
-  toggleHiddenMode(data.isHidden);
-});
+// Run as soon as possible - even before DOM is fully loaded
+executeEarly();
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "change-hidden-mode") {
-    toggleHiddenMode(request.isHidden);
+// Create an observer instance that will run only once for initial load
+const initialObserver = new MutationObserver((mutations) => {
+  try {
+    // Process immediately without disconnecting first for speed
+    if (isHiddenGlobal) {
+      requestAnimationFrame(() => {
+        toggleEmail();
+      });
+    }
+  } catch (error) {
+    console.log("Error in mutation observer:", error);
   }
 });
 
-function toggleHiddenMode(hidden) {
-  console.log("Toggling hidden mode:", hidden);
-  if (!hidden) return;
-  toggleEmail();
+// Create a continuous observer to detect new content
+const contentObserver = new MutationObserver((mutations) => {
+  if (!isHiddenGlobal) return; // Only process if hiding is enabled
+
+  // Throttle processing to prevent performance issues
+  if (!throttleTimer) {
+    throttleTimer = setTimeout(() => {
+      throttleTimer = null;
+      toggleEmail(); // Process any new content
+    }, 10);
+  }
+});
+
+// Execute as early as possible
+function executeEarly() {
+  // Try to get the state immediately
+  chrome.storage.sync.get("isHidden", (data) => {
+    handleState(data.isHidden);
+
+    // Execute immediately if we can
+    if (data.isHidden && document.body) {
+      requestAnimationFrame(() => {
+        toggleEmail();
+      });
+    }
+  });
+
+  // Add fastest possible listeners
+  document.addEventListener("DOMContentLoaded", () => {
+    chrome.storage.sync.get("isHidden", (data) => {
+      handleState(data.isHidden);
+      if (data.isHidden) {
+        requestAnimationFrame(() => {
+          toggleEmail();
+        });
+      }
+    });
+  });
+}
+
+// Initial check directly
+chrome.storage.sync.get("isHidden", (data) => {
+  handleState(data.isHidden);
+
+  // Set up observers immediately
+  if (document.body) {
+    // Start observing for both initial and continuous changes
+    initialObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    // Start the continuous observer for dynamic content
+    setupContinuousObservation();
+  } else {
+    // If body isn't ready, wait for it
+    const checkBodyInterval = setInterval(() => {
+      if (document.body) {
+        clearInterval(checkBodyInterval);
+
+        initialObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
+
+        setupContinuousObservation();
+      }
+    }, 5);
+  }
+
+  // Also run when the page is fully loaded for any missed content
+  window.addEventListener("load", () => {
+    if (data.isHidden) {
+      requestAnimationFrame(() => {
+        toggleEmail();
+      });
+    }
+  });
+});
+
+// Set up monitoring for URL/navigation changes
+function setupNavigationMonitoring() {
+  // Listen for popstate events (back/forward navigation)
+  window.addEventListener("popstate", () => {
+    if (isHiddenGlobal) {
+      requestAnimationFrame(() => {
+        toggleEmail();
+      });
+    }
+  });
+
+  // Monitor pushState and replaceState calls
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+
+  history.pushState = function () {
+    originalPushState.apply(this, arguments);
+    if (isHiddenGlobal) {
+      requestAnimationFrame(() => {
+        toggleEmail();
+      });
+    }
+  };
+
+  history.replaceState = function () {
+    originalReplaceState.apply(this, arguments);
+    if (isHiddenGlobal) {
+      requestAnimationFrame(() => {
+        toggleEmail();
+      });
+    }
+  };
+}
+
+// Set up continuous observation of DOM changes
+function setupContinuousObservation() {
+  // Start observing for dynamic content changes
+  contentObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+
+  // Set up navigation monitoring for SPA
+  setupNavigationMonitoring();
+}
+
+// Listen for messages from popup/background
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "change-hidden-mode") {
+    handleState(request.isHidden);
+  }
+});
+
+function handleState(hidden) {
+  isHiddenGlobal = hidden; // Store the state globally
+
+  if (hidden && document.body) {
+    requestAnimationFrame(() => {
+      toggleEmail();
+    });
+  }
 }
 
 function toggleEmail() {
   // email regex: https://stackoverflow.com/questions/201323/how-can-i-validate-an-email-address-using-a-regular-expression
-  const uglyRegex = RegExp(
+  const emailRegex = RegExp(
     /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/g
   );
+
+  // Process visible elements first - prioritize what the user sees
+  processVisibleContent(emailRegex);
+
+  // Then process everything else
+  processAllContent(emailRegex);
+}
+
+// Process visible content first (in viewport)
+function processVisibleContent(emailRegex) {
   // get email inputs by id, name and obviously type. this can include duplicates but we don't care
   const possibleEmailInputs = [
     ...document.querySelectorAll(`input[id="mail"]`),
@@ -48,21 +192,81 @@ function toggleEmail() {
     ...document.querySelectorAll(`input[name="email_address"]`),
     ...document.querySelectorAll(`input[type="email"]`),
   ];
+
+  // Handle input fields immediately
   for (const email of possibleEmailInputs) {
     const value = email.value;
-    if (uglyRegex.test(value)) {
-      email.setAttribute(dataTypeAttribute, email.type);
-      email.type = "password";
+    if (emailRegex.test(value)) {
+      // Only change the type if not already processed
+      if (!email.hasAttribute(dataTypeAttribute)) {
+        email.setAttribute(dataTypeAttribute, email.type);
+        email.type = "password";
+      }
     }
   }
-  const matches = document.body.innerHTML.matchAll(uglyRegex);
-  for (const match of matches) {
-    document.body.innerHTML = document.body.innerHTML.replace(
-      match[0],
-      match[0]
-        .split("@")
-        .map((e) => e.replace(/./g, "*"))
-        .join("@")
-    );
+
+  // Try to find elements in the current viewport first
+  try {
+    const viewportHeight = window.innerHeight;
+    const viewportElements = [];
+
+    // Get all elements in the viewport
+    const allElements = document.body.getElementsByTagName("*");
+    for (let i = 0; i < allElements.length; i++) {
+      const element = allElements[i];
+      const rect = element.getBoundingClientRect();
+
+      // Check if element is in viewport
+      if (rect.top < viewportHeight && rect.bottom >= 0) {
+        viewportElements.push(element);
+      }
+    }
+
+    // Process viewport elements first
+    viewportElements.forEach((element) => {
+      replaceEmailsInTextNodes(element, emailRegex);
+    });
+  } catch (e) {
+    // Fall back to default processing if viewport detection fails
+    replaceEmailsInTextNodes(document.body, emailRegex);
+  }
+}
+
+// Process all content after visible content
+function processAllContent(emailRegex) {
+  replaceEmailsInTextNodes(document.body, emailRegex);
+}
+
+// Function to safely traverse DOM and replace emails in text nodes only
+function replaceEmailsInTextNodes(element, emailRegex) {
+  if (!element) return;
+
+  // Skip script and style elements entirely
+  if (element.tagName === "SCRIPT" || element.tagName === "STYLE") {
+    return;
+  }
+
+  // Process child nodes
+  for (let i = 0; i < element.childNodes.length; i++) {
+    const node = element.childNodes[i];
+
+    // Text node processing
+    if (node.nodeType === 3) {
+      // Node.TEXT_NODE
+      const text = node.nodeValue;
+      if (emailRegex.test(text)) {
+        node.nodeValue = text.replace(emailRegex, (match) => {
+          return match
+            .split("@")
+            .map((part) => part.replace(/./g, "*"))
+            .join("@");
+        });
+      }
+    }
+    // Element node - recursive traversal
+    else if (node.nodeType === 1) {
+      // Node.ELEMENT_NODE
+      replaceEmailsInTextNodes(node, emailRegex);
+    }
   }
 }
