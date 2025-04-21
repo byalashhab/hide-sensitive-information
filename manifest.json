@@ -1,6 +1,18 @@
 {
   "name": "Hide Sensitive Information",
-  "action": {},
+  "icons": {
+    "16": "icons/1.png",
+    "48": "icons/2.png",
+    "128": "icons/3.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/1.png",
+      "48": "icons/2.png",
+      "128": "icons/3.png"
+    },
+    "default_title": "Click me!"
+  },
   "manifest_version": 3,
   "version": "0.1",
   "description": "Hide fields on a website that contain sensitive information.",
